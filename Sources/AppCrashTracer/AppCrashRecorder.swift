@@ -131,9 +131,11 @@ extension AppCrashTracer.Recorder {
     /// - Parameters:
     ///   - jsonHeader: json格式的崩溃日志的header
     ///   - fileHeader: log格式的崩溃日志的header
-    public static func configHeader(jsonHeader: ((_ jsonHeader: inout [String: Any]) -> Void)?, fileHeader: ((_ fileHeader: inout [String: Any]) -> Void)?) {
-        jsonHeaderCallback = jsonHeader
-        fileHeaderCallback = fileHeader
+    public static func configJsonFileHeader(callback: @escaping (_ header: inout [String: Any]) -> Void) {
+        jsonHeaderCallback = callback
+    }
+    public static func configLogFileHeader(callback: @escaping (_ header: inout [String: Any]) -> Void) {
+        fileHeaderCallback = callback
     }
     
     static func prepare(folder: String? = nil) {
