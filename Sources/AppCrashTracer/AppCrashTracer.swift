@@ -19,17 +19,10 @@ public extension AppCrashTracer {
     /// 初始化
     /// - Parameter folder: 日志文件夹名称
     @objc static func start(folder: String? = nil) {
-        if let folder = folder {
-            Recorder.folderName = folder
-        }
-        if let folderDir = Recorder.workspace {
-            if FileManager.default.fileExists(atPath: folderDir.path) == false {
-                try? FileManager.default.createDirectory(atPath: folderDir.path, withIntermediateDirectories: true)
-            }
-        }
-        // on exception
-        Caughter.onException { Recorder.onCrash(exception: $0) }
-        
+        // config recorder
+        Recorder.prepare(folder: folder)
+        // config exception callback
+        Caughter.onException { Recorder.record(exception: $0) }
     }
     
 }

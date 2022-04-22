@@ -18,19 +18,17 @@ public extension AppCrashTracer {
             }
         }
         
-        public static var header = [String: Any]()
-        
+        /// 所有的手动record文本
         static var records = [(meta: String, message: String)]()
         
-        static var folderName: String = "Crashes"
-
-        static var workspace: URL? {
-            FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent(folderName, isDirectory: true)
-        }
+        static var workspace: URL?
         
         static let dateFormatter = DateFormatter()
         
         fileprivate static let launchTime = Date()
+        
+        fileprivate static var jsonHeaderCallback: ((_ jsonHeader: inout [String: Any]) -> Void)?
+        fileprivate static var fileHeaderCallback: ((_ fileHeader: inout [String: Any]) -> Void)?
         
     }
 }
@@ -128,7 +126,34 @@ public extension AppCrashTracer.Recorder {
 
 
 extension AppCrashTracer.Recorder {
-    static func onCrash(exception: AppCrashTracer.CrashInfo) {
+    
+    /// 配置崩溃日志的header，当崩溃发生时会进入此回调
+    /// - Parameters:
+    ///   - jsonHeader: json格式的崩溃日志的header
+    ///   - fileHeader: log格式的崩溃日志的header
+    public static func configHeader(jsonHeader: ((_ jsonHeader: inout [String: Any]) -> Void)?, fileHeader: ((_ fileHeader: inout [String: Any]) -> Void)?) {
+        jsonHeaderCallback = jsonHeader
+        fileHeaderCallback = fileHeader
+    }
+    
+    static func prepare(folder: String? = nil) {
+        let dir: String
+        if let folder = folder, folder.count > 0 {
+            dir = folder
+        } else {
+            dir = "Crashes"
+        }
+        workspace = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent(dir, isDirectory: true)
+        if let folderDir = workspace {
+            if FileManager.default.fileExists(atPath: folderDir.path) == false {
+                try? FileManager.default.createDirectory(atPath: folderDir.path, withIntermediateDirectories: true)
+            }
+        }
+    }
+    
+    /// 记录崩溃信息
+    /// - Parameter exception: 崩溃信息
+    static func record(exception: AppCrashTracer.CrashInfo) {
         guard let folderDir = workspace else {
             return
         }
@@ -141,7 +166,9 @@ extension AppCrashTracer.Recorder {
         var json = [String: Any]()
         json["launchTime"] = launchTimeStr
         json["crashTime"] = crashTimeStr
-        header.forEach { json[$0.key] = $0.value }
+        var jsonHeader = [String: Any]()
+        jsonHeaderCallback?(&jsonHeader)
+        jsonHeader.forEach { json[$0.key] = $0.value }
         json["crashInfo"] = exception.dict
         if JSONSerialization.isValidJSONObject(json) {
             if let data = try? JSONSerialization.data(withJSONObject: json) {
@@ -156,7 +183,9 @@ extension AppCrashTracer.Recorder {
         // header
         text.append("launch time: \(launchTimeStr)\n")
         text.append("crash time:  \(crashTimeStr)\n")
-        header.forEach { kv in
+        var fileHeader = [String: Any]()
+        fileHeaderCallback?(&fileHeader)
+        fileHeader.forEach { kv in
             text.append("\(kv.key): \(kv.value)")
         }
         text.append("\n\n")
@@ -185,4 +214,10 @@ extension AppCrashTracer.Recorder {
     }
 }
 
+// MARK: - ObjC
 
+public class AppCrashRecorderOC: NSObject {
+    @objc public static func customRecord(_ session: String, code: String, message: String? = nil) {
+        AppCrashRecorder.customRecord(session, code: code, message: message)
+    }
+}
