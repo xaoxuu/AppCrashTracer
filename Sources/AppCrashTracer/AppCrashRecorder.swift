@@ -18,6 +18,8 @@ public extension AppCrashTracer {
             }
         }
         
+        public static var maxRecordCount = 50
+        
         /// 所有的手动record文本
         static var records = [(meta: String, message: String)]()
         
@@ -25,7 +27,7 @@ public extension AppCrashTracer {
         
         static let dateFormatter = DateFormatter()
         
-        fileprivate static let launchTime = Date()
+        fileprivate static var launchTime = Date()
         
         fileprivate static var jsonHeaderCallback: ((_ jsonHeader: inout [String: Any]) -> Void)?
         fileprivate static var fileHeaderCallback: ((_ fileHeader: inout [String: Any]) -> Void)?
@@ -42,7 +44,7 @@ public extension AppCrashTracer.Recorder {
     ///   - session: trace session
     static func record(_ session: Session, file: String = #file, function: String = #function, line: Int = #line) {
         let meta = "[\(timeStr(format: "MM-dd HH:mm:ss"))][\(session.identifier)] " + (file as NSString).lastPathComponent + " \(function) <line:\(line)>"
-        records.append((meta: meta, message: ""))
+        appendRecord((meta: meta, message: ""))
     }
     
     /// 记录
@@ -56,7 +58,7 @@ public extension AppCrashTracer.Recorder {
         if strArr.count > 0 {
             message = "> " + strArr.joined(separator: ", ")
         }
-        records.append((meta: meta, message: message))
+        appendRecord((meta: meta, message: message))
     }
     
     /// 记录
@@ -65,7 +67,7 @@ public extension AppCrashTracer.Recorder {
     ///   - code: code信息
     ///   - messages: 额外需要记录的内容
     static func customRecord(_ session: String, code: String, message: String? = nil) {
-        records.append((meta: "[\(timeStr(format: "MM-dd HH:mm:ss"))][\(session)] " + code, message: message ?? ""))
+        appendRecord((meta: "[\(timeStr(format: "MM-dd HH:mm:ss"))][\(session)] " + code, message: message ?? ""))
     }
     
 }
@@ -84,33 +86,7 @@ public extension AppCrashTracer.Recorder {
             logs.sort()
             urls = logs.map { workspace.appendingPathComponent($0) }
         }
-        return urls.filter { $0.pathExtension == "log" }
-    }
-    
-    static func exportLogObjects() -> [[String: Any]] {
-        guard let workspace = workspace else {
-            return []
-        }
-        var urls = [URL]()
-        if let dirEnum = FileManager.default.enumerator(atPath: workspace.path) {
-            var logs = (dirEnum.allObjects as? [String]) ?? [String]()
-            logs.sort()
-            urls = logs.map { workspace.appendingPathComponent($0) }
-        }
-        urls = urls.filter { $0.pathExtension == "json" }
-        var objs = [[String: Any]]()
-        urls.forEach { fileURL in
-            do {
-                let data = try Data.init(contentsOf: fileURL)
-                let obj = try JSONSerialization.jsonObject(with: data)
-                if let dict = obj as? [String: Any] {
-                    objs.append(dict)
-                }
-            } catch {
-                print(error.localizedDescription)
-            }
-        }
-        return objs
+        return urls.filter { ["log", "json"].contains($0.pathExtension) }
     }
     
     /// 删除日志
@@ -139,6 +115,7 @@ extension AppCrashTracer.Recorder {
     }
     
     static func prepare(folder: String? = nil) {
+        launchTime = Date()
         let dir: String
         if let folder = folder, folder.count > 0 {
             dir = folder
@@ -171,7 +148,10 @@ extension AppCrashTracer.Recorder {
         var jsonHeader = [String: Any]()
         jsonHeaderCallback?(&jsonHeader)
         jsonHeader.forEach { json[$0.key] = $0.value }
-        json["crashInfo"] = exception.dict
+        json["crashName"] = exception.name
+        if let reason = exception.reason {
+            json["crashReason"] = reason
+        }
         if JSONSerialization.isValidJSONObject(json) {
             if let data = try? JSONSerialization.data(withJSONObject: json) {
                 FileManager.default.createFile(atPath: jsonFileURL.path, contents: data)
@@ -188,7 +168,7 @@ extension AppCrashTracer.Recorder {
         var fileHeader = [String: Any]()
         fileHeaderCallback?(&fileHeader)
         fileHeader.forEach { kv in
-            text.append("\(kv.key): \(kv.value)")
+            text.append("\(kv.key): \(kv.value)\n")
         }
         text.append("\n\n")
         // messages
@@ -214,12 +194,30 @@ extension AppCrashTracer.Recorder {
         dateFormatter.dateFormat = format
         return dateFormatter.string(from: date)
     }
+    static func appendRecord(_ record: (meta: String, message: String)) {
+        if records.count >= maxRecordCount {
+            records.removeFirst()
+        }
+        records.append(record)
+    }
 }
 
 // MARK: - ObjC
 
-public class AppCrashRecorderOC: NSObject {
-    @objc public static func customRecord(_ session: String, code: String, message: String? = nil) {
+public class AppCrashRecorderObjC: NSObject {
+    @objc public static func customRecord(_ session: String, code: String, message: String?) {
         AppCrashRecorder.customRecord(session, code: code, message: message)
+    }
+    @objc public static func exportLogFiles() -> [URL] {
+        AppCrashRecorder.exportLogFiles()
+    }
+    @objc public static func codeMeta(function: UnsafePointer<CChar>?, line: Int32) -> String {
+        let fn: String?
+        if let ff = function {
+            fn = String.init(utf8String: ff)
+        } else {
+            fn = nil
+        }
+        return "\(fn ?? "unknown") <line:\(line)>"
     }
 }

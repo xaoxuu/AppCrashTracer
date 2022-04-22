@@ -27,14 +27,6 @@ extension AppCrashTracer {
             text.append("call stack symbols:\n\(callStackSymbols.joined(separator: "\n"))\n")
             return text
         }
-        var dict: [String: Any] {
-            var dict = [String: Any]()
-            dict["name"] = name
-            if let reason = reason {
-                dict["reason"] = reason
-            }
-            return dict
-        }
     }
 }
 
