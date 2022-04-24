@@ -21,6 +21,10 @@ struct ExampleApp: App {
                     AppCrashRecorder.configLogFileHeader { header in
                         header["fileHeader"] = "这是崩溃日志文件的header"
                     }
+                    AppCrashRecorder.configUserInfo { userInfo in
+                        userInfo["page"] = "live"
+                        userInfo["pages"] = "main, live"
+                    }
                 }
         }
     }

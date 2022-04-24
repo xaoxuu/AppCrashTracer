@@ -11,6 +11,8 @@ import UIKit
 /// 在任何地方调用trace手动记录关键轨迹，崩溃时将这些轨迹记录到崩溃日志中
 @objc public class AppCrashTracer: NSObject {
     
+    @objc public static var userInfo = [String: Any]()
+    
 }
 
 

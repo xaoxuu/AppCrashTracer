@@ -31,6 +31,7 @@ public extension AppCrashTracer {
         
         fileprivate static var jsonHeaderCallback: ((_ jsonHeader: inout [String: Any]) -> Void)?
         fileprivate static var fileHeaderCallback: ((_ fileHeader: inout [String: Any]) -> Void)?
+        fileprivate static var userInfoCallback: ((_ userInfo: inout [String: Any]) -> Void)?
         
     }
 }
@@ -113,6 +114,9 @@ extension AppCrashTracer.Recorder {
     public static func configLogFileHeader(callback: @escaping (_ header: inout [String: Any]) -> Void) {
         fileHeaderCallback = callback
     }
+    public static func configUserInfo(callback: @escaping (_ userInfo: inout [String: Any]) -> Void) {
+        userInfoCallback = callback
+    }
     
     static func prepare(folder: String? = nil) {
         launchTime = Date()
@@ -171,12 +175,21 @@ extension AppCrashTracer.Recorder {
             text.append("\(kv.key): \(kv.value)\n")
         }
         text.append("\n\n")
+        // user info
+        userInfoCallback?(&AppCrashTracer.userInfo)
+        if AppCrashTracer.userInfo.count > 0 {
+            text.append("-------- status --------\n")
+            AppCrashTracer.userInfo.forEach { kv in
+                text.append("\(kv.key): \(kv.value)\n")
+            }
+            text.append("\n\n")
+        }
         // messages
         if records.count > 0 {
-            text.append("-------- trace info --------\n")
+            text.append("-------- events --------\n")
             records.forEach { kv in
                 text.append("\(kv.meta)\n")
-                if !kv.1.isEmpty {
+                if !kv.message.isEmpty {
                     text.append("\(kv.message)\n")
                 }
             }

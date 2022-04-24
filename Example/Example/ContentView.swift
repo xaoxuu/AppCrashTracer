@@ -49,11 +49,6 @@ struct ContentView: View {
                     let urls = AppCrashRecorder.exportLogFiles()
                     ActivityViewController(activityItems: urls)
                 })
-                Button("Print Crash Json") {
-                    let objs = AppCrashRecorder.exportLogObjects()
-                    print(objs)
-                }
-                .buttonStyle(.borderedProminent)
             }
         }
         .padding()
