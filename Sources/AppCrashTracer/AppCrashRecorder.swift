@@ -18,10 +18,14 @@ public extension AppCrashTracer {
             }
         }
         
+        /// 自定义记录最大个数
         public static var maxRecordCount = 50
         
+        /// 崩溃时是否记录详情，如果有第三方工具同时记录，这个可以设置为false
+        public static var configRecordExceptionDetail = true
+        
         /// 所有的手动record文本
-        static var records = [(meta: String, message: String)]()
+        public private(set) static var allRecords = [(meta: String, message: String)]()
         
         static var workspace: URL?
         
@@ -29,9 +33,10 @@ public extension AppCrashTracer {
         
         fileprivate static var launchTime = Date()
         
-        fileprivate static var jsonHeaderCallback: ((_ jsonHeader: inout [String: Any]) -> Void)?
-        fileprivate static var fileHeaderCallback: ((_ fileHeader: inout [String: Any]) -> Void)?
-        fileprivate static var userInfoCallback: ((_ userInfo: inout [String: Any]) -> Void)?
+        /// 崩溃时间，如果未空表示还未崩溃
+        static var crashTime: Date?
+        
+        fileprivate static var configCustomInfoCallback: ((_ jsonHeader: inout [String: Any], _ fileHeader: inout [String: Any], _ userInfo: inout [String: Any]) -> Void)?
         
     }
 }
@@ -105,17 +110,9 @@ public extension AppCrashTracer.Recorder {
 extension AppCrashTracer.Recorder {
     
     /// 配置崩溃日志的header，当崩溃发生时会进入此回调
-    /// - Parameters:
-    ///   - jsonHeader: json格式的崩溃日志的header
-    ///   - fileHeader: log格式的崩溃日志的header
-    public static func configJsonFileHeader(callback: @escaping (_ header: inout [String: Any]) -> Void) {
-        jsonHeaderCallback = callback
-    }
-    public static func configLogFileHeader(callback: @escaping (_ header: inout [String: Any]) -> Void) {
-        fileHeaderCallback = callback
-    }
-    public static func configUserInfo(callback: @escaping (_ userInfo: inout [String: Any]) -> Void) {
-        userInfoCallback = callback
+    /// - Parameter callback: 回调
+    public static func configCustomInfo(callback: @escaping (_ jsonHeader: inout [String: Any], _ fileHeader: inout [String: Any], _ userInfo: inout [String: Any]) -> Void) {
+        configCustomInfoCallback = callback
     }
     
     static func prepare(folder: String? = nil) {
@@ -134,26 +131,37 @@ extension AppCrashTracer.Recorder {
         }
     }
     
-    /// 记录崩溃信息
-    /// - Parameter exception: 崩溃信息
-    static func record(exception: AppCrashTracer.CrashInfo) {
+    /// 重置数据
+    static func reset() {
+        crashTime = nil
+    }
+    
+    static func recordException(name: String?, reason: String?, description: String?) {
+        guard crashTime == nil else {
+            // 允许重复调用，这样设计可以让多个崩溃采集工具都能够触发，但一次启动只能崩溃一次防止数据重复
+            return
+        }
         guard let folderDir = workspace else {
             return
         }
-        let crashTime = Date()
-        let fileName = timeStr(format: "yyyy-MM-dd-HHmmssZ", date: crashTime)
+        crashTime = Date()
+        let fileName = timeStr(format: "yyyy-MM-dd-HHmmssZ", date: crashTime!)
         let launchTimeStr = "\(timeStr(format: "yyyy-MM-dd HH:mm:ss Z", date: launchTime)) (\(launchTime.timeIntervalSince1970))"
-        let crashTimeStr = "\(timeStr(format: "yyyy-MM-dd HH:mm:ss Z", date: crashTime)) (\(crashTime.timeIntervalSince1970))"
+        let crashTimeStr = "\(timeStr(format: "yyyy-MM-dd HH:mm:ss Z", date: crashTime!)) (\(crashTime!.timeIntervalSince1970))"
         // json
         let jsonFileURL = folderDir.appendingPathComponent(fileName + ".json")
         var json = [String: Any]()
         json["launchTime"] = launchTimeStr
         json["crashTime"] = crashTimeStr
         var jsonHeader = [String: Any]()
-        jsonHeaderCallback?(&jsonHeader)
+        var fileHeader = [String: Any]()
+        var userInfo = [String: Any]()
+        configCustomInfoCallback?(&jsonHeader, &fileHeader, &userInfo)
         jsonHeader.forEach { json[$0.key] = $0.value }
-        json["crashName"] = exception.name
-        if let reason = exception.reason {
+        if let name = name, name.count > 0 {
+            json["crashName"] = name
+        }
+        if let reason = reason, reason.count > 0 {
             json["crashReason"] = reason
         }
         if JSONSerialization.isValidJSONObject(json) {
@@ -169,25 +177,22 @@ extension AppCrashTracer.Recorder {
         // header
         text.append("launch time: \(launchTimeStr)\n")
         text.append("crash time:  \(crashTimeStr)\n")
-        var fileHeader = [String: Any]()
-        fileHeaderCallback?(&fileHeader)
         fileHeader.forEach { kv in
             text.append("\(kv.key): \(kv.value)\n")
         }
         text.append("\n\n")
         // user info
-        userInfoCallback?(&AppCrashTracer.userInfo)
-        if AppCrashTracer.userInfo.count > 0 {
+        if userInfo.count > 0 {
             text.append("-------- status --------\n")
-            AppCrashTracer.userInfo.forEach { kv in
+            userInfo.forEach { kv in
                 text.append("\(kv.key): \(kv.value)\n")
             }
             text.append("\n\n")
         }
         // messages
-        if records.count > 0 {
+        if allRecords.count > 0 {
             text.append("-------- events --------\n")
-            records.forEach { kv in
+            allRecords.forEach { kv in
                 text.append("\(kv.meta)\n")
                 if !kv.message.isEmpty {
                     text.append("\(kv.message)\n")
@@ -196,22 +201,40 @@ extension AppCrashTracer.Recorder {
             text.append("\n\n")
         }
         // crash info
-        text.append("-------- crash info --------\n")
-        text.append(exception.description)
+        if configRecordExceptionDetail {
+            text.append("-------- crash info --------\n")
+            if let description = description, description.count > 0 {
+                text.append(description)
+            }
+        }
+        // save to file
         guard let data = text.data(using: .utf8) else {
             return
         }
         FileManager.default.createFile(atPath: logFileURL.path, contents: data)
     }
+    
+    /// 记录自定义崩溃信息（将会触发回调然后结束session）
+    /// - Parameter exception: 崩溃信息
+    public static func record(crash: NSException?) {
+        recordException(name: crash?.name.rawValue, reason: crash?.reason, description: crash?.description)
+    }
+    
+    /// 记录崩溃信息
+    /// - Parameter crash: 崩溃信息
+    static func record(crash: AppCrashTracer.CrashInfo) {
+        recordException(name: crash.name, reason: crash.reason, description: crash.description)
+    }
+    
     static func timeStr(format: String, date: Date = Date()) -> String {
         dateFormatter.dateFormat = format
         return dateFormatter.string(from: date)
     }
     static func appendRecord(_ record: (meta: String, message: String)) {
-        if records.count >= maxRecordCount {
-            records.removeFirst()
+        if allRecords.count >= maxRecordCount {
+            allRecords.removeFirst()
         }
-        records.append(record)
+        allRecords.append(record)
     }
 }
 

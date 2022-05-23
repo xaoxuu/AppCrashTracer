@@ -15,13 +15,9 @@ struct ExampleApp: App {
             ContentView()
                 .onAppear {
                     AppCrashTracer.start()
-                    AppCrashRecorder.configJsonFileHeader { header in
-                        header["jsonHeader"] = "这是json文件的header"
-                    }
-                    AppCrashRecorder.configLogFileHeader { header in
-                        header["fileHeader"] = "这是崩溃日志文件的header"
-                    }
-                    AppCrashRecorder.configUserInfo { userInfo in
+                    AppCrashRecorder.configCustomInfo { jsonHeader, fileHeader, userInfo in
+                        jsonHeader["jsonHeader"] = "这是json文件的header"
+                        fileHeader["fileHeader"] = "这是崩溃日志文件的header"
                         userInfo["page"] = "live"
                         userInfo["pages"] = "main, live"
                     }
